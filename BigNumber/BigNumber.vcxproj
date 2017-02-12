@@ -116,7 +116,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="BigFigure.c" />
-    <ClCompile Include="test.cpp" />
+    <ClCompile Include="test.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

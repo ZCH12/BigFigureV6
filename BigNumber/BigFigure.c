@@ -1,5 +1,6 @@
 #include <malloc.h>
 #include <assert.h>
+#define _CRT_SECURE_NO_WARNINGS 
 #include <string.h>
 #include "BigFigure.h"
 
@@ -8,7 +9,6 @@
 
 
 typedef uint32_t bit32;									//bit32为32位的内存块,用于struct中
-typedef int8_t ErrVal;									//定义返回值类型
 
 #if BF_BUFF_USE==1				//当开启异常安全保证时
 #define BF_BUFF_SIZE 2			//开启双缓冲,能够确保异常安全,但不节省内存
@@ -36,8 +36,8 @@ struct BFDetail
 //本地函数声明
 static inline ErrVal __AllocData(pchar* Data, pchar* psRPt, usize IntLen, usize FltLen);
 static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt, usize iAInt, pchar * psFlt, usize iAFlt);
-static char* _StrCpyB(const char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd);
-static char* _StrCpy(char * DestStart, const char *DestEnd, const char *SourceStart, const char* SourceEnd);
+static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd);
+static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize);
 
 //工厂函数(用于生产BF)
 struct BFDetail* CreateBF(usize intLen, usize FloatLen)
@@ -96,6 +96,76 @@ void DestroyBF(struct BFDetail* OperateBF)
 	return;
 }
 
+//输入函数
+
+//此函数仅适用于整数的转换
+//必须自行保证参数的准确性
+__declspec(deprecated(WARNING_TEXT(toBF1)))
+ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
+{
+	int HasMinus = 0;
+	short CopyIndex;
+	const char *StringHead;
+	usize Length;
+	ErrVal retVal;
+
+#if BF_BUFF_USE
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
+#endif
+
+	if (String[0] == '-')
+	{
+		HasMinus = 1;
+		StringHead = ++String;
+	}
+	else
+		StringHead = String;
+	String += strlen(String);
+	Length = (usize)(String - StringHead);
+	//如果发现为空,则进行分配内存
+
+	if (Length > OperateBF->iAInt)
+	{
+		//Data内存不足
+		if (OperateBF->pData[CopyIndex])
+			free(OperateBF->pData[CopyIndex]);
+		//Data内存不足,将重新分配一块足够大的内存
+		retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], Length, OperateBF->iAFlt);
+		if (retVal)
+			return retVal;
+		OperateBF->iAInt = Length;
+#if BF_BUFF_USE
+		free(OperateBF->pData[OperateBF->iCDI]);
+		OperateBF->pData[OperateBF->iCDI] = (pchar)0;
+#endif
+	}
+#if BF_BUFF_USE
+	else
+	{
+		//Data内存足够
+		if (!OperateBF->pData[CopyIndex])
+		{
+			retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], OperateBF->iAInt, OperateBF->iAFlt);
+			if (retVal)
+				return retVal;
+		}
+	}
+#endif
+
+
+	OperateBF->bMinus = HasMinus;
+	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, String);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
+#if BF_BUFF_USE
+	OperateBF->iCDI = CopyIndex;
+#endif
+	return SUCCESS;
+}
+
+
+
 
 //分配新的Data
 //提高编写效率
@@ -143,25 +213,28 @@ static ErrVal _ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFl
 	pchar Tmp_RPt;
 	ErrVal retVal = __AllocData(&Tmp, &Tmp_RPt, newIntLen, newFltLen);
 	if (retVal)
-	{
 		return retVal;
-	}
 
 	//保存新的Data的已分配长度
 	OperateBF->iAFlt = newFltLen;
 	OperateBF->iAInt = newIntLen;
 
-
 	OperateBF->psInt[0] = _StrCpyB(Tmp, Tmp_RPt, OperateBF->psInt[0], OperateBF->psRPt[0]);
-	OperateBF->iLInt = Tmp_RPt - OperateBF->psInt[0];
+	OperateBF->iLInt = (usize)(Tmp_RPt - OperateBF->psInt[0]);
 
 	if (newFltLen)
 	{
-		OperateBF->psFlt[0] = Tmp_RPt + 1;
 		if (OperateBF->iLFlt)
-			OperateBF->iLFlt = _StrCpy(OperateBF->psFlt[0], Tmp_RPt + newFltLen, OperateBF->psFlt[0], OperateBF->psFlt[0] + OperateBF->iLFlt) - OperateBF->psFlt[0];
+		{
+			OperateBF->iLFlt = (usize)(_StrCpy(Tmp_RPt + 1, newFltLen, OperateBF->psFlt[0], OperateBF->iLFlt));
+			OperateBF->psFlt[0] = Tmp_RPt + 1;
+		}
 		else
+		{
+			//OperateBF->iLFlt不需要改变
+			OperateBF->psFlt[0] = Tmp_RPt + 1;
 			OperateBF->psFlt[0][0] = '\0';
+		}
 	}
 
 	free(OperateBF->pData[0]);			//pData中的数据已经复制到新的Data中(Tmp),进行释放内存,以免内存泄露
@@ -187,48 +260,43 @@ static ErrVal _AllocNewData(struct BFDetail* OperateBF)
 }
 
 //从Source的最后一个元素起,复制数据到Dest(从后往前复制,如果Dest内存不足,则截断Source的内存低位)
-//SourceEnd必须包含结束符
 //此函数适用于整数部分的复制
-static char* _StrCpyB(const char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd)
+static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd)
 {
-	ptrdiff_t DestSize = DestEnd - DestStart, SourceSize = SourceEnd - SourceStart;
-	if (DestSize < SourceSize)
+	ptrdiff_t SourceSize = SourceEnd - SourceStart, DestSize = DestEnd - DestStart, offset = SourceSize - DestSize;
+	char * retVal;
+	if (offset >= 0)
 	{
 		//Dest的空间不足
-		while (DestStart <= DestEnd)
-			*DestEnd-- = *SourceEnd--;
+		retVal = DestStart;
+		strncpy(retVal, SourceStart + offset, DestSize);
 	}
 	else
 	{
-		//Source的内容较少
-		while (SourceStart <= SourceEnd)
-			*DestEnd-- = *SourceEnd--;
+		//Dest的空间充足,偏移写入位置
+		retVal = DestStart - offset;
+		strncpy(retVal, SourceStart, SourceSize);
 	}
-	return ++DestEnd;
-}
 
+	*DestEnd = 0;
+	return retVal;
+}
 //返回值为写入的最后一个元素的位置
-static char* _StrCpy(char * DestStart, const char *DestEnd, const char *SourceStart, const char* SourceEnd)
+//此函数适用于小数部分的复制
+static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize)
 {
-	ptrdiff_t DestSize = DestEnd - DestStart, SourceSize = SourceEnd - SourceStart;
-	if (DestSize < SourceSize)
-	{
-		//Dest的空间不足
-		while (DestStart <= DestEnd)
-			*DestStart++ = *SourceStart++;
-	}
-	else
-	{
-		//Source的内容较少
-		while (SourceStart <= SourceEnd)
-			*DestStart++ = *SourceStart++;
-	}
-	return --DestStart;
+	usize RealSize = MIN(DestSize, SourceSize);
+	strncpy(DestStart, SourceStart, RealSize);
+	DestStart[RealSize] = 0;
+	return DestStart;
 }
 
 
 void test(struct BFDetail* BF)
 {
-	_ReSizeBF(BF, 100, 100);
-	_ReSizeBF(BF, 1000, 1);
+	char A[10] = "123456789";
+	char B[10];
+	for (int a = 0; a < 100000000; a++)
+		strcpy(B, A);
+
 }
