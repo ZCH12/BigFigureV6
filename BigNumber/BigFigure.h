@@ -8,12 +8,13 @@ extern "C"
 #endif
 #include <stdint.h>
 	//********************错误值常量**********************
-#define ERR_BADALLOC 1
-#define SUCCESS 0
+#define ERR_BADALLOC					1
+#define ERR_ILLEGALNUMSTRING			2
+#define ERR_SUCCESS						0
 
 	//**********************编译开关**********************
 	//决定是否开启异常安全保证
-#define BF_BUFF_USE 1			//决定是否开启异常安全保证(开启后存在代价,内存使用量递增,但若操作失败对数据没有影响)
+#define BF_BUFF_USE 0			//决定是否开启异常安全保证(开启后存在代价,内存使用量递增,但若操作失败对数据没有影响)
 #define BF_MAXSIZE_BIT 16
 	//**********************初始化************************
 	typedef int8_t ErrVal;									//定义返回值类型

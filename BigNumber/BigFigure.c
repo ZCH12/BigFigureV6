@@ -38,6 +38,7 @@ static inline ErrVal __AllocData(pchar* Data, pchar* psRPt, usize IntLen, usize 
 static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt, usize iAInt, pchar * psFlt, usize iAFlt);
 static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd);
 static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize);
+static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest);
 
 //工厂函数(用于生产BF)
 struct BFDetail* CreateBF(usize intLen, usize FloatLen)
@@ -99,21 +100,15 @@ void DestroyBF(struct BFDetail* OperateBF)
 //输入函数
 
 //此函数仅适用于整数的转换
-//必须自行保证参数的准确性
+//必须自行保证参数的准确性,不准确的参数会导致不可预料的后果
 __declspec(deprecated(WARNING_TEXT(toBF1)))
 ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 {
 	int HasMinus = 0;
 	short CopyIndex;
 	const char *StringHead;
-	usize Length;
+	//usize Length;
 	ErrVal retVal;
-
-#if BF_BUFF_USE
-	CopyIndex = !OperateBF->iCDI;
-#else
-	CopyIndex = OperateBF->iCDI;
-#endif
 
 	if (String[0] == '-')
 	{
@@ -123,37 +118,16 @@ ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 	else
 		StringHead = String;
 	String += strlen(String);
-	Length = (usize)(String - StringHead);
 	//如果发现为空,则进行分配内存
 
-	if (Length > OperateBF->iAInt)
-	{
-		//Data内存不足
-		if (OperateBF->pData[CopyIndex])
-			free(OperateBF->pData[CopyIndex]);
-		//Data内存不足,将重新分配一块足够大的内存
-		retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], Length, OperateBF->iAFlt);
-		if (retVal)
-			return retVal;
-		OperateBF->iAInt = Length;
+	retVal = _CheckIntSize(OperateBF, (usize)(String - StringHead));
+	if (retVal)
+		return retVal;
 #if BF_BUFF_USE
-		free(OperateBF->pData[OperateBF->iCDI]);
-		OperateBF->pData[OperateBF->iCDI] = (pchar)0;
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
 #endif
-	}
-#if BF_BUFF_USE
-	else
-	{
-		//Data内存足够
-		if (!OperateBF->pData[CopyIndex])
-		{
-			retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], OperateBF->iAInt, OperateBF->iAFlt);
-			if (retVal)
-				return retVal;
-		}
-	}
-#endif
-
 
 	OperateBF->bMinus = HasMinus;
 	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, String);
@@ -161,10 +135,49 @@ ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 #if BF_BUFF_USE
 	OperateBF->iCDI = CopyIndex;
 #endif
-	return SUCCESS;
+	return ERR_SUCCESS;
 }
 
+//此函数仅用于整数的转换,有安全性校验,可用于用户输入的数据的转换
+ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
+{
+	int HasMinus = 0;
+	const char * StringHead;
+	short CopyIndex;
+	ErrVal retVal;
 
+	if (*String == '-')
+	{
+		HasMinus = 1;
+		StringHead = ++String;
+	}
+	else
+		StringHead = String;
+	while (*String)
+		if (*String > '9' || *String < '0')
+			break;
+		else
+			String++;
+	if (*String != 0 || String == StringHead)
+		return ERR_ILLEGALNUMSTRING;
+	retVal = _CheckIntSize(OperateBF, (usize)(String - StringHead));
+	if (retVal)
+		return retVal;
+
+
+#if BF_BUFF_USE
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
+#endif
+	OperateBF->bMinus = HasMinus;
+	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, String);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
+#if BF_BUFF_USE
+	OperateBF->iCDI = CopyIndex;
+#endif
+	return ERR_SUCCESS;
+}
 
 
 //分配新的Data
@@ -176,7 +189,7 @@ static inline ErrVal __AllocData(pchar* Data, pchar* psRPt, usize IntLen, usize 
 		return ERR_BADALLOC;
 	*psRPt = *Data + IntLen;
 	**psRPt = '\0';											//写入结束符
-	return SUCCESS;
+	return ERR_SUCCESS;
 }
 
 //重新设置 写入位置(数字进行保存时的起始位置)
@@ -185,7 +198,47 @@ static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt,
 	*psInt = *psRPt - (iLInt < iAInt ? iLInt : iAInt);
 	if (iAFlt)
 		*psFlt = *psRPt + 1;
-	return SUCCESS;
+	return ERR_SUCCESS;
+}
+
+
+//检查整数部分的大小,如果不足,则自动进行分配
+static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest)
+{
+	short retVal;
+	short OperateIndex = !OperateBF->iCDI;
+	if (IntSizeRequest > OperateBF->iAInt)
+	{
+		//Data内存不足
+		if (OperateBF->pData[OperateIndex])
+			free(OperateBF->pData[OperateIndex]);
+		//Data内存不足,将重新分配一块足够大的内存
+		retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], IntSizeRequest, OperateBF->iAFlt);
+		if (retVal)
+			return retVal;
+		OperateBF->iAInt = IntSizeRequest;
+#if BF_BUFF_USE
+		OperateIndex = OperateBF->iCDI;
+		if (OperateBF->pData[OperateIndex])
+		{
+			free(OperateBF->pData[OperateIndex]);
+			OperateBF->pData[OperateIndex] = (pchar)0;
+		}
+#endif
+	}
+#if BF_BUFF_USE
+	else
+	{
+		//Data内存足够,但是内存未分配,所以进行分配内存(只在异常安全时)
+		if (!OperateBF->pData[OperateIndex])
+		{
+			retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], OperateBF->iAInt, OperateBF->iAFlt);
+			if (retVal)
+				return retVal;
+		}
+	}
+#endif
+	return ERR_SUCCESS;
 }
 
 //为副本Data重新分配内存,此,需要传入新的大小
@@ -201,7 +254,7 @@ static ErrVal _ReSizeBF_s(struct BFDetail* OperateBF, usize newIntLen, usize new
 	retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], newIntLen, newFltLen);
 	if (retVal)
 		return retVal;
-	return SUCCESS;
+	return ERR_SUCCESS;
 }
 
 //为BF重新更改大小,只有一块内存,必须重新分配内存后进行复制
@@ -240,7 +293,7 @@ static ErrVal _ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFl
 	free(OperateBF->pData[0]);			//pData中的数据已经复制到新的Data中(Tmp),进行释放内存,以免内存泄露
 	OperateBF->psRPt[0] = Tmp_RPt;
 	OperateBF->pData[0] = Tmp;
-	return SUCCESS;
+	return ERR_SUCCESS;
 }
 
 //为副本Data分配内存(与当前已有的缓冲区的大小一致,只是多申请一块内存,采用BF内的已有参数来初始化Data)
@@ -251,12 +304,12 @@ static ErrVal _AllocNewData(struct BFDetail* OperateBF)
 	uint8_t CopyIndex = !OperateBF->iCDI;
 	ErrVal retVal;
 	if (OperateBF->pData[CopyIndex])
-		return SUCCESS;										//已经分配内存,不需要进行分配,请先释放那部分内存
+		return ERR_SUCCESS;										//已经分配内存,不需要进行分配,请先释放那部分内存
 	retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], OperateBF->iAInt, OperateBF->iAFlt);
 	if (retVal)
 		return retVal;
 	__ResetDataPoint(&OperateBF->psRPt[CopyIndex], &OperateBF->psInt[CopyIndex], OperateBF->iLInt, OperateBF->iAInt, &OperateBF->psFlt[CopyIndex], OperateBF->iAFlt);
-	return SUCCESS;
+	return ERR_SUCCESS;
 }
 
 //从Source的最后一个元素起,复制数据到Dest(从后往前复制,如果Dest内存不足,则截断Source的内存低位)
