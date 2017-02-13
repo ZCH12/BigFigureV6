@@ -39,6 +39,7 @@ static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt,
 static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd);
 static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize);
 static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest);
+static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest);
 
 //工厂函数(用于生产BF)
 struct BFDetail* CreateBF(usize intLen, usize FloatLen)
@@ -107,7 +108,6 @@ ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 	int HasMinus = 0;
 	short CopyIndex;
 	const char *StringHead;
-	//usize Length;
 	ErrVal retVal;
 
 	if (String[0] == '-')
@@ -149,10 +149,13 @@ ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 	if (*String == '-')
 	{
 		HasMinus = 1;
-		StringHead = ++String;
+		while (*(++String) == '0');
 	}
 	else
-		StringHead = String;
+		while (*String == '0')
+			String++;
+	StringHead = String;
+
 	while (*String)
 		if (*String > '9' || *String < '0')
 			break;
@@ -179,6 +182,49 @@ ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 	return ERR_SUCCESS;
 }
 
+//此函数适用于含小数点的小数的转换
+__declspec(deprecated(WARNING_TEXT(toBF1)))
+ErrVal toBF2(struct BFDetail * OperateBF, const char* String)
+{
+	int HasMinus = 0;
+	short CopyIndex;
+	const char *StringIntHead, *StringFltHead;
+	ErrVal retVal;
+
+	if (String[0] == '-')
+	{
+		HasMinus = 1;
+		StringIntHead = ++String;
+	}
+	else
+		StringIntHead = String;
+	while (*String++ != '.');
+	StringFltHead = String;		//找到第一个小数位所在的位置
+	String += strlen(String);		//找到字符串的结尾
+
+	retVal = _CheckIntFltSize(OperateBF, StringFltHead - StringIntHead, String - StringFltHead);
+	if (retVal)
+		return retVal;
+
+#if BF_BUFF_USE
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
+#endif
+
+	OperateBF->bMinus = HasMinus;
+
+	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringIntHead, StringFltHead - 1);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
+
+	OperateBF->iLFlt = (usize)(_StrCpy(OperateBF->psFlt[CopyIndex], OperateBF->iAFlt, StringFltHead, String - StringFltHead) + 1 - OperateBF->psRPt[CopyIndex]);
+
+
+#if BF_BUFF_USE
+	OperateBF->iCDI = CopyIndex;
+#endif
+	return ERR_SUCCESS;
+}
 
 //分配新的Data
 //提高编写效率
@@ -240,6 +286,54 @@ static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequ
 #endif
 	return ERR_SUCCESS;
 }
+
+//检查整数和小数部分的大小,如果不足,则自动进行分配
+static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest)
+{
+	short retVal;
+	short OperateIndex;
+#if BF_BUFF_USE
+	OperateIndex = !OperateBF->iCDI;
+#else 
+	OperateIndex = OperateBF->iCDI;
+#endif
+	if (IntSizeRequest > OperateBF->iAInt || FltSizeRequest > OperateBF->iAFlt)
+	{
+		//Data内存不足
+		if (OperateBF->pData[OperateIndex])
+			free(OperateBF->pData[OperateIndex]);
+		//Data内存不足,将重新分配一块足够大的内存
+		retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], (IntSizeRequest = MAX(IntSizeRequest, OperateBF->iAInt)), (FltSizeRequest = MAX(FltSizeRequest, OperateBF->iAFlt)));
+		if (retVal)
+			return retVal;
+		OperateBF->iAInt = IntSizeRequest;
+		OperateBF->iAFlt = FltSizeRequest;
+		OperateBF->psFlt[OperateIndex] = OperateBF->psRPt[OperateIndex] + 1;
+#if BF_BUFF_USE
+		OperateIndex = OperateBF->iCDI;
+		if (OperateBF->pData[OperateIndex])
+		{
+			free(OperateBF->pData[OperateIndex]);
+			OperateBF->pData[OperateIndex] = (pchar)0;
+		}
+#endif
+	}
+#if BF_BUFF_USE
+	else
+	{
+		//Data内存足够,但是内存未分配,所以进行分配内存(只在异常安全时)
+		if (!OperateBF->pData[OperateIndex])
+		{
+			retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], OperateBF->iAInt, OperateBF->iAFlt);
+			if (retVal)
+				return retVal;
+		}
+	}
+#endif
+	return ERR_SUCCESS;
+}
+
+
 
 //为副本Data重新分配内存,此,需要传入新的大小
 //分配后新的Data和旧的Data的参数不一致,请务必在副本Data升级为主Data之时释放原主Data
