@@ -36,12 +36,14 @@ struct BFDetail
 //本地函数声明
 static inline ErrVal __AllocData(pchar* Data, pchar* psRPt, usize IntLen, usize FltLen);
 static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt, usize iAInt, pchar * psFlt, usize iAFlt);
+static inline int __DoAdd(char * StringTailR, const char * StringHeadA, const char * StringTailA, const char * StringHeadB, const char * StringTailB, int carry);
 static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart, const char * SourceEnd);
 static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize);
 static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest);
 static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest);
 static inline ErrVal _toBF1(struct BFDetail * OperateBF, const char * StringHead, const char* StringTail, short HasMinus);
 static inline ErrVal _toBF2(struct BFDetail * OperateBF, const char * StringIntHead, const char * StringFltHead, const char* StringTail, short HasMinus);
+static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB, int carry);
 
 
 //工厂函数(用于生产BF)
@@ -309,23 +311,105 @@ usize GetBitCount(struct BFDetail *OperateBF)
 
 //整数部分的加法运算函数(忽略负号)
 //不具有安全性
-static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB)
+static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB, int carry)
 {
-	short CopyIndexA = !OperateBFA->iCDI;
-	short CopyIndexB = !OperateBFB->iCDI;
-	short CopyIndexR = !ResultBF->iCDI;
+	short CopyIndexA;
+	short CopyIndexB;
+	short CopyIndexR;
 
-	char
+	CopyIndexA = OperateBFA->iCDI;
+	CopyIndexB = OperateBFB->iCDI;
+#if BF_BUFF_USE
+	CopyIndexR = !ResultBF->iCDI;
+#else
+	CopyIndexR = ResultBF->iCDI;
+#endif
+	const char
 		*StringHeadA = OperateBFA->psInt[CopyIndexA],
 		*StringHeadB = OperateBFB->psInt[CopyIndexB],
-		*StringHeadR = ResultBF->pData[CopyIndexR],
 		*StringTailA = OperateBFA->psRPt[CopyIndexA] - 1,
 		*StringTailB = OperateBFB->psRPt[CopyIndexB] - 1,
+		*StringTemp;
+	char
+		*StringHeadR = ResultBF->pData[CopyIndexR],
 		*StringTailR = ResultBF->psRPt[CopyIndexR] - 1;
+
+	usize
+		LenA = StringTailA - StringHeadA,
+		LenB = StringTailB - StringHeadB;
 	register int Val;
 
+	if (LenA > LenB)
+	{
+		//不需要担心Result的内存,在调用此函数之前,应先分配好内存
+		carry = __DoAdd(StringTailR, StringHeadA + LenA - LenB, StringTailA, StringHeadB, StringTailB, carry);
+		StringTailA -= LenB;
+		StringTailR -= LenB;
 
+		while (carry&&*StringHeadA < *StringTailA)
+		{
+			*StringTailR = *StringHeadA-- + 1;
+			if (*StringTailR > '9')
+				*StringTailR -= 10;
+			StringTailR--;
+		}
+
+		if (StringHeadA != StringTailA)
+			StringTailR = _StrCpyB(StringHeadR, StringTailR, StringHeadA, StringTailA);
+		else
+			StringTailR++;
+	}
+	else if (LenA < LenB)
+	{
+		carry = __DoAdd(StringTailR, StringHeadA, StringTailA, StringHeadB + LenB - LenA, StringTailB, carry);
+		StringTailB -= LenA;
+		StringTailR -= LenA;
+
+		while (carry&&*StringHeadB <= *StringTailB)
+		{
+			*StringTailR = *StringHeadB-- + 1;
+			if (*StringTailR > '9')
+				*StringTailR -= 10;
+			StringTailR--;
+		}
+		if (StringHeadB != StringTailB)
+			StringTailR=_StrCpyB(StringHeadR, StringTailR, StringHeadB, StringTailB);
+		else
+			StringTailR++;
+	}
+	else
+	{
+		carry = __DoAdd(StringTailR, StringHeadA, StringTailA, StringHeadB, StringTailB, carry);
+		StringTailR -= LenA;
+	}
+	if (carry)
+		*(--StringTailR) = '1';
+
+	ResultBF->psInt[CopyIndexR] = StringTailR;
+	ResultBF->iLInt = ResultBF->psRPt[CopyIndexR] - StringTailR;
 	return ERR_SUCCESS;
+}
+
+//加法运算(同长部分相加)
+static inline int __DoAdd(char * StringTailR, const char * StringHeadA, const char * StringTailA, const char * StringHeadB, const char * StringTailB, int carry)
+{
+	register int Val;
+	while (StringHeadA <= StringTailA)
+	{
+		Val = (int)*StringTailA-- + (int)*StringTailB-- + carry;
+		if (Val > 105)			//'0'+'9'=105
+		{
+			carry = 1;
+			Val -= 58;			//'9'+1=58
+		}
+		else
+		{
+			carry = 0;
+			Val -= '0';
+		}
+		*StringTailR-- = (char)Val;
+	}
+	return carry;
 }
 
 //分配新的Data
@@ -578,7 +662,7 @@ static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart,
 		strncpy(retVal, SourceStart, SourceSize);
 	}
 
-	*DestEnd = 0;
+	//*DestEnd = 0;
 	return retVal;
 }
 //返回值为写入的最后一个元素的位置
@@ -592,7 +676,8 @@ static inline char* _StrCpy(char * DestStart, usize DestSize, const char *Source
 }
 
 
-void test(struct BFDetail* BF)
+void test(struct BFDetail* c, struct BFDetail* a, struct BFDetail* b)
 {
-	system("pause");
+	_IntPartAdd(c, a, b,0);
+	//system("pause");
 }

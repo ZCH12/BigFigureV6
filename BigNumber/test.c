@@ -5,13 +5,15 @@
 
 int main()
 {
-	struct BFDetail *a = CreateBF(13, 0);
-	char str[15];
+	struct BFDetail *a = CreateBF(13, 0), *b = CreateBF(13, 0),*c=CreateBF(100,100);
+	char str[100];
 	//clock_t t1 = clock();
 	//for (int b = -100000000; b < 100000000; b++)
-		
-	printf("%hd\n",toBF2_s(a, "-123.232300000"));
-	toString(a, str);
+
+	printf("%hd\n", toBF2_s(a, "-234.232300000"));
+	printf("%hd\n", toBF2_s(b, "-1456.232300000"));
+	test(c, a, b);
+	toString(c, str);
 	printf("'%s'\n", str);
 	//printf("%d", clock() - t1);
 
