@@ -10,8 +10,9 @@ int main()
 	//clock_t t1 = clock();
 	//for (int b = -100000000; b < 100000000; b++)
 
-	printf("%hd\n", toBF2_s(a, "-234.232300000"));
-	printf("%hd\n", toBF2_s(b, "-1456.232300000"));
+	toBF2_s(a, "234.12345678");
+	toBF2_s(b, "1456.91111122");
+	BFAdd(c, a, b);
 	test(c, a, b);
 	toString(c, str);
 	printf("'%s'\n", str);

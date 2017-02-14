@@ -45,6 +45,11 @@ extern "C"
 	struct BFDetail* CreateBF(usize intLen, usize FloatLen);				//工厂函数
 	void DestroyBF(struct BFDetail* OperateBF);								//回收函数
 	usize GetBitCount(struct BFDetail *OperateBF);
+	int BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB);		//比较函数
+
+	ErrVal BFAdd(struct BFDetail * ResultBF, struct BFDetail * OperandA, struct BFDetail *OperandB);
+
+
 
 	//不安全函数,仅用于参数必定正确的情况下
 	_CRT_INSECURE_DEPRECATE(toBF1_s) 
