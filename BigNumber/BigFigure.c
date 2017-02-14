@@ -40,6 +40,9 @@ static char* _StrCpyB(char * DestStart, char *DestEnd, const char * SourceStart,
 static inline char* _StrCpy(char * DestStart, usize DestSize, const char *SourceStart, usize SourceSize);
 static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest);
 static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest);
+static inline ErrVal _toBF1(struct BFDetail * OperateBF, const char * StringHead, const char* StringTail, short HasMinus);
+static inline ErrVal _toBF2(struct BFDetail * OperateBF, const char * StringIntHead, const char * StringFltHead, const char* StringTail, short HasMinus);
+
 
 //工厂函数(用于生产BF)
 struct BFDetail* CreateBF(usize intLen, usize FloatLen)
@@ -120,28 +123,13 @@ ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 	String += strlen(String);
 	//如果发现为空,则进行分配内存
 
-	retVal = _CheckIntSize(OperateBF, (usize)(String - StringHead));
-	if (retVal)
-		return retVal;
-#if BF_BUFF_USE
-	CopyIndex = !OperateBF->iCDI;
-#else
-	CopyIndex = OperateBF->iCDI;
-#endif
-
-	OperateBF->bMinus = HasMinus;
-	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, String);
-	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
-#if BF_BUFF_USE
-	OperateBF->iCDI = CopyIndex;
-#endif
-	return ERR_SUCCESS;
+	return _toBF1(OperateBF, StringHead, String, HasMinus);
 }
 
 //此函数仅用于整数的转换,有安全性校验,可用于用户输入的数据的转换
 ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 {
-	int HasMinus = 0;
+	short HasMinus = 0;
 	const char * StringHead;
 	short CopyIndex;
 	ErrVal retVal;
@@ -163,27 +151,13 @@ ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 			String++;
 	if (*String != 0 || String == StringHead)
 		return ERR_ILLEGALNUMSTRING;
-	retVal = _CheckIntSize(OperateBF, (usize)(String - StringHead));
-	if (retVal)
-		return retVal;
 
-
-#if BF_BUFF_USE
-	CopyIndex = !OperateBF->iCDI;
-#else
-	CopyIndex = OperateBF->iCDI;
-#endif
-	OperateBF->bMinus = HasMinus;
-	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, String);
-	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
-#if BF_BUFF_USE
-	OperateBF->iCDI = CopyIndex;
-#endif
-	return ERR_SUCCESS;
+	return _toBF1(OperateBF, StringHead, String, HasMinus);
 }
 
-//此函数适用于含小数点的小数的转换
-__declspec(deprecated(WARNING_TEXT(toBF1)))
+//此函数值适用于含小数点的小数的转换,如果要转换整数,请使用toBF1
+//此函数不具有安全性,如果传入不正确的数值,则会引发不可预料的结果
+__declspec(deprecated(WARNING_TEXT(toBF2)))
 ErrVal toBF2(struct BFDetail * OperateBF, const char* String)
 {
 	int HasMinus = 0;
@@ -201,29 +175,75 @@ ErrVal toBF2(struct BFDetail * OperateBF, const char* String)
 	while (*String++ != '.');
 	StringFltHead = String;		//找到第一个小数位所在的位置
 	String += strlen(String);		//找到字符串的结尾
+	return _toBF2(OperateBF, StringIntHead, StringFltHead, String, HasMinus);
+}
 
-	retVal = _CheckIntFltSize(OperateBF, StringFltHead - StringIntHead, String - StringFltHead);
-	if (retVal)
-		return retVal;
 
-#if BF_BUFF_USE
-	CopyIndex = !OperateBF->iCDI;
-#else
-	CopyIndex = OperateBF->iCDI;
+//本函数适用于整数和小数的转换,
+//本函数具有安全性,可用于转换用户输入的数值字符串
+ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String)
+{
+	int HasMinus = 0;
+	short CopyIndex;
+	const char *StringIntHead, *StringFltHead;
+	ErrVal retVal;
+
+	if (*String == '-')
+	{
+		HasMinus = 1;
+		while (*(++String) == '0');
+	}
+	else
+		while (*String == '0') String++;
+	StringIntHead = String;
+
+	while (*String != '.')
+	{
+		if (*String < '0' || *String>'9')
+			break;
+		else
+			String++;
+	}
+	if (*String)
+	{
+		StringFltHead = ++String;
+		while (*String != 0)
+		{
+			if (*String < '0' || *String>'9')
+				break;
+			else
+				String++;
+		}
+	}
+	else
+	{
+		StringFltHead = NULL;				//记录该数为整数类型
+	}
+	if (*String)
+		return ERR_ILLEGALNUMSTRING;		//不是合法的数值字符串
+
+#if !BF_IN_RESERVEZERO
+	//去除末尾的0
+	String--;
+	while (*String == '0')
+		String--;
+	String++;
 #endif
-
-	OperateBF->bMinus = HasMinus;
-
-	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringIntHead, StringFltHead - 1);
-	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
-
-	OperateBF->iLFlt = (usize)(_StrCpy(OperateBF->psFlt[CopyIndex], OperateBF->iAFlt, StringFltHead, String - StringFltHead) + 1 - OperateBF->psRPt[CopyIndex]);
-
-
-#if BF_BUFF_USE
-	OperateBF->iCDI = CopyIndex;
-#endif
-	return ERR_SUCCESS;
+	if (!StringFltHead)
+	{
+		//如果小数点没有数字,则认定为整数(当最后一位为结束符时)
+		return _toBF1(OperateBF, StringIntHead, String, HasMinus);
+	}
+	else if (StringFltHead == String)
+	{
+		//如果小数点没有数字,则认定为整数(当最后一位为小数点时)
+		return _toBF1(OperateBF, StringIntHead, String - 1, HasMinus);
+	}
+	else
+	{
+		//如果有小数点,且小数点后有数字,则认定为小数
+		return _toBF2(OperateBF, StringIntHead, StringFltHead, String, HasMinus);
+	}
 }
 
 //分配新的Data
@@ -247,11 +267,64 @@ static inline ErrVal __ResetDataPoint(pchar * psRPt, pchar * psInt, usize iLInt,
 	return ERR_SUCCESS;
 }
 
+//将整数字符串写入BF中
+static inline ErrVal _toBF1(struct BFDetail * OperateBF, const char * StringHead, const char* StringTail, short HasMinus)
+{
+	ErrVal retVal;
+	short CopyIndex;
+
+	retVal = _CheckIntSize(OperateBF, (usize)(StringTail - StringHead));
+	if (retVal)
+		return retVal;
+
+
+#if BF_BUFF_USE
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
+#endif
+	OperateBF->bMinus = HasMinus;
+	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringHead, StringTail);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
+#if BF_BUFF_USE
+	OperateBF->iCDI = CopyIndex;
+#endif
+	return ERR_SUCCESS;
+}
+
+//将小数字符串写入BF中
+static inline ErrVal _toBF2(struct BFDetail * OperateBF, const char * StringIntHead, const char * StringFltHead, const char* StringTail, short HasMinus)
+{
+	ErrVal retVal;
+	short CopyIndex;
+	retVal = _CheckIntFltSize(OperateBF, StringFltHead - StringIntHead, StringTail - StringFltHead);
+	if (retVal)
+		return retVal;
+
+#if BF_BUFF_USE
+	CopyIndex = !OperateBF->iCDI;
+#else
+	CopyIndex = OperateBF->iCDI;
+#endif
+
+	OperateBF->bMinus = HasMinus;
+
+	OperateBF->psInt[CopyIndex] = _StrCpyB(OperateBF->pData[CopyIndex], OperateBF->psRPt[CopyIndex], StringIntHead, StringFltHead - 1);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[CopyIndex] - OperateBF->psInt[CopyIndex]);
+
+	OperateBF->iLFlt = (usize)(_StrCpy(OperateBF->psFlt[CopyIndex], OperateBF->iAFlt, StringFltHead, StringTail - StringFltHead) - OperateBF->psRPt[CopyIndex]);
+
+#if BF_BUFF_USE
+	OperateBF->iCDI = CopyIndex;
+#endif
+	return ERR_SUCCESS;
+}
+
 
 //检查整数部分的大小,如果不足,则自动进行分配
 static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest)
 {
-	short retVal;
+	ErrVal retVal;
 	short OperateIndex = !OperateBF->iCDI;
 	if (IntSizeRequest > OperateBF->iAInt)
 	{
@@ -290,7 +363,7 @@ static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequ
 //检查整数和小数部分的大小,如果不足,则自动进行分配
 static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest)
 {
-	short retVal;
+	ErrVal retVal;
 	short OperateIndex;
 #if BF_BUFF_USE
 	OperateIndex = !OperateBF->iCDI;
@@ -317,7 +390,7 @@ static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeR
 			OperateBF->pData[OperateIndex] = (pchar)0;
 		}
 #endif
-	}
+}
 #if BF_BUFF_USE
 	else
 	{
@@ -332,8 +405,6 @@ static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeR
 #endif
 	return ERR_SUCCESS;
 }
-
-
 
 //为副本Data重新分配内存,此,需要传入新的大小
 //分配后新的Data和旧的Data的参数不一致,请务必在副本Data升级为主Data之时释放原主Data
@@ -434,16 +505,12 @@ static inline char* _StrCpy(char * DestStart, usize DestSize, const char *Source
 {
 	usize RealSize = MIN(DestSize, SourceSize);
 	strncpy(DestStart, SourceStart, RealSize);
-	DestStart[RealSize] = 0;
-	return DestStart;
+	DestStart[DestSize] = 0;
+	return DestStart + DestSize - 1;
 }
 
 
 void test(struct BFDetail* BF)
 {
-	char A[10] = "123456789";
-	char B[10];
-	for (int a = 0; a < 100000000; a++)
-		strcpy(B, A);
-
+	system("pause");
 }

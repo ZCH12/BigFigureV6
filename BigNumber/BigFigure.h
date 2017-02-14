@@ -13,9 +13,11 @@ extern "C"
 #define ERR_SUCCESS						0
 
 	//**********************编译开关**********************
-	//决定是否开启异常安全保证
-#define BF_BUFF_USE 1			//决定是否开启异常安全保证(开启后存在代价,内存使用量递增,但若操作失败对数据没有影响)
-#define BF_MAXSIZE_BIT 16
+#define BF_BUFF_USE						1//决定是否开启异常安全保证(开启后存在代价,内存使用量变多,但操作失败时对原数据没有影响)
+#define BF_MAXSIZE_BIT					16
+#define BF_IN_RESERVEZERO				0//建议为1,设为0后会自动去除传入的小数的尾部的'0',消耗更多性能,但可能减少不必要的内存分配
+
+
 	//**********************初始化************************
 	typedef int8_t ErrVal;									//定义返回值类型
 #if BF_MAXSIZE_BIT==8
@@ -48,6 +50,8 @@ extern "C"
 
 	__declspec(deprecated(WARNING_TEXT(toBF1)))
 		ErrVal toBF1(struct BFDetail * OperateBF, const char* String);
+
+	ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String);
 
 	void test(struct BFDetail* BF);
 
