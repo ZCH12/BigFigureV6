@@ -105,13 +105,10 @@ void DestroyBF(struct BFDetail* OperateBF)
 
 //此函数仅适用于整数的转换
 //必须自行保证参数的准确性,不准确的参数会导致不可预料的后果
-__declspec(deprecated(WARNING_TEXT(toBF1)))
 ErrVal toBF1(struct BFDetail * OperateBF, const char* String)
 {
 	int HasMinus = 0;
-	short CopyIndex;
 	const char *StringHead;
-	ErrVal retVal;
 
 	if (String[0] == '-')
 	{
@@ -131,8 +128,6 @@ ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 {
 	short HasMinus = 0;
 	const char * StringHead;
-	short CopyIndex;
-	ErrVal retVal;
 
 	if (*String == '-')
 	{
@@ -157,13 +152,10 @@ ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String)
 
 //此函数值适用于含小数点的小数的转换,如果要转换整数,请使用toBF1
 //此函数不具有安全性,如果传入不正确的数值,则会引发不可预料的结果
-__declspec(deprecated(WARNING_TEXT(toBF2)))
 ErrVal toBF2(struct BFDetail * OperateBF, const char* String)
 {
 	int HasMinus = 0;
-	short CopyIndex;
 	const char *StringIntHead, *StringFltHead;
-	ErrVal retVal;
 
 	if (String[0] == '-')
 	{
@@ -184,9 +176,7 @@ ErrVal toBF2(struct BFDetail * OperateBF, const char* String)
 ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String)
 {
 	int HasMinus = 0;
-	short CopyIndex;
 	const char *StringIntHead, *StringFltHead;
-	ErrVal retVal;
 
 	if (*String == '-')
 	{
@@ -244,6 +234,98 @@ ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String)
 		//如果有小数点,且小数点后有数字,则认定为小数
 		return _toBF2(OperateBF, StringIntHead, StringFltHead, String, HasMinus);
 	}
+}
+
+//该函数将BF中的数值输出到指定的缓冲区中
+char* toString(struct BFDetail * OperateBF, char * Buffer)
+{
+	char *Head = Buffer;
+	if (OperateBF->bMinus)
+		*Buffer++ = '-';
+	strncpy(Buffer, OperateBF->psInt[OperateBF->iCDI], OperateBF->iLInt);
+	Buffer += OperateBF->iLInt;
+	if (OperateBF->iLFlt)
+	{
+		*Buffer++ = '.';
+		strncpy(Buffer, OperateBF->psFlt[OperateBF->iCDI], OperateBF->iLFlt);
+		Buffer[OperateBF->iLFlt] = 0;
+	}
+	else
+		*Buffer = 0;
+	return Head;
+}
+
+char* toString_s(struct BFDetail * OperateBF, char *Buffer, size_t BufferSize)
+{
+	char *Head = Buffer;
+	if (OperateBF->bMinus && BufferSize > 1U)
+	{
+		*Buffer++ = '-';
+		BufferSize--;
+	}
+	if (BufferSize > (size_t)OperateBF->iLInt)
+	{
+		strncpy(Buffer, OperateBF->psInt[OperateBF->iCDI], OperateBF->iLInt);
+		Buffer += OperateBF->iLInt;
+		BufferSize -= OperateBF->iLInt;
+	}
+	else
+	{
+		strncpy(Buffer, OperateBF->psInt[OperateBF->iCDI], BufferSize - 1);
+		Buffer[BufferSize - 1] = 0;
+		return Head;
+	}
+	if (OperateBF->iLFlt)
+	{
+		if (BufferSize > (size_t)(OperateBF->iLFlt + 1))
+		{
+			*Buffer++ = '.';
+			strncpy(Buffer, OperateBF->psFlt[OperateBF->iCDI], OperateBF->iLFlt);
+			Buffer[OperateBF->iLFlt] = 0;
+		}
+		else {
+			*Buffer++ = '.';
+			BufferSize -= 2;
+			strncpy(Buffer, OperateBF->psFlt[OperateBF->iCDI], BufferSize);
+			Buffer[BufferSize] = 0;
+			return Head;
+		}
+	}
+	else
+		*Buffer = 0;
+	return Head;
+}
+
+//获取存放此BF的缓冲区的最小大小要求
+usize GetBitCount(struct BFDetail *OperateBF)
+{
+	return OperateBF->iLInt + (OperateBF->iLFlt ? OperateBF->iLFlt + 2 : 1) + (OperateBF->bMinus ? 1 : 0);
+}
+
+
+
+
+
+
+//整数部分的加法运算函数(忽略负号)
+//不具有安全性
+static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB)
+{
+	short CopyIndexA = !OperateBFA->iCDI;
+	short CopyIndexB = !OperateBFB->iCDI;
+	short CopyIndexR = !ResultBF->iCDI;
+
+	char
+		*StringHeadA = OperateBFA->psInt[CopyIndexA],
+		*StringHeadB = OperateBFB->psInt[CopyIndexB],
+		*StringHeadR = ResultBF->pData[CopyIndexR],
+		*StringTailA = OperateBFA->psRPt[CopyIndexA] - 1,
+		*StringTailB = OperateBFB->psRPt[CopyIndexB] - 1,
+		*StringTailR = ResultBF->psRPt[CopyIndexR] - 1;
+	register int Val;
+
+
+	return ERR_SUCCESS;
 }
 
 //分配新的Data
@@ -390,7 +472,7 @@ static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeR
 			OperateBF->pData[OperateIndex] = (pchar)0;
 		}
 #endif
-}
+	}
 #if BF_BUFF_USE
 	else
 	{

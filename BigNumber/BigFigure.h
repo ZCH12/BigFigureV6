@@ -15,7 +15,7 @@ extern "C"
 	//**********************编译开关**********************
 #define BF_BUFF_USE						1//决定是否开启异常安全保证(开启后存在代价,内存使用量变多,但操作失败时对原数据没有影响)
 #define BF_MAXSIZE_BIT					16
-#define BF_IN_RESERVEZERO				0//建议为1,设为0后会自动去除传入的小数的尾部的'0',消耗更多性能,但可能减少不必要的内存分配
+#define BF_IN_RESERVEZERO				1//建议为1,设为0后会自动去除传入的小数的尾部的'0',消耗更多性能,但可能减少不必要的内存分配
 
 
 	//**********************初始化************************
@@ -33,9 +33,6 @@ extern "C"
 		BF_MAXSIZE_BIT != 32 || BF_MAXSIZE_BIT != 64, "BF_MAXSIZE_BIT only be 8,16,32,64");
 #endif
 
-#define WARNING_TEXT(_replace) #_replace"函数只能用于格式完全正确的字符串,如果你要转换格式不确定的字符串,请改用"\
-#_replace"_s函数"
-
 
 	//****************************************************
 
@@ -47,11 +44,26 @@ extern "C"
 	//函数声明
 	struct BFDetail* CreateBF(usize intLen, usize FloatLen);				//工厂函数
 	void DestroyBF(struct BFDetail* OperateBF);								//回收函数
+	usize GetBitCount(struct BFDetail *OperateBF);
 
-	__declspec(deprecated(WARNING_TEXT(toBF1)))
-		ErrVal toBF1(struct BFDetail * OperateBF, const char* String);
+	//不安全函数,仅用于参数必定正确的情况下
+	_CRT_INSECURE_DEPRECATE(toBF1_s) 
+		ErrVal toBF1(struct BFDetail * OperateBF, const char* String);		//接收整数字符串并转换后存进OperateBF
+	_CRT_INSECURE_DEPRECATE(toBF2_s) 
+		ErrVal toBF2(struct BFDetail * OperateBF, const char* String);		//接收小数字符串并转换后存进OperateBF
+	_CRT_INSECURE_DEPRECATE(toString_s) 
+		char* toString(struct BFDetail * OperateBF, char * Buffer);			//将OperateBF中的值转换为字符串
 
-	ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String);
+	//安全版本的函数
+	ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String);		//接收整数字符串并转换后存进OperateBF,非整数拒绝接受
+	ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String);		//接收小数或整数字符串并转换后存进OperateBF,非小数或整数拒绝接受
+	char* toString_s(struct BFDetail * OperateBF, char *Buffer, size_t BufferSize);
+																			//将OperateBF中的数值安全得写入到Buffer中,如果Buffer的容量太小,不足以存放所有的内容,则数据会被截断
+
+
+
+	
+
 
 	void test(struct BFDetail* BF);
 
