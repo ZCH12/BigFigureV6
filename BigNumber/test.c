@@ -1,22 +1,26 @@
 #include <stdio.h>
-#include <stdlib.h>
+#include <malloc.h>
 #include <time.h>
 #include "BigFigure.h"
 
 int main()
 {
-	struct BFDetail *a = CreateBF(13, 0), *b = CreateBF(13, 0),*c=CreateBF(100,100);
-	char str[100];
-	//clock_t t1 = clock();
-	//for (int b = -100000000; b < 100000000; b++)
+	struct BFDetail *a = CreateBF(13, 0), *b = CreateBF(13, 0), *c = CreateBF(100, 100);
+	char str[3000];
 
-	toBF2_s(a, "234.12345678");
-	toBF2_s(b, "1456.91111122");
-	BFAdd(c, a, b);
-	test(c, a, b);
+	clock_t t1 = clock();
+	for (int DD = 0; DD < 100; DD++)
+	{
+		toBF1_s(a, "97891612313212351531564123156121231535132151313231326556456145151551598");
+		toBF1_s(b, "10000000000000000000000000000000000000000000000000000000000000000000000");
+		BFAdd(c, a, b);
+		
+	}
+		
+	printf("%d\n",CheckBF(c));
 	toString(c, str);
 	printf("'%s'\n", str);
-	//printf("%d", clock() - t1);
+	printf("ÔËÐÐºÄÊ±:%dms\n", clock() - t1);
 
 
 	system("pause");

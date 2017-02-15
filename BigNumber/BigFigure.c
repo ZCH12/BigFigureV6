@@ -1,20 +1,22 @@
+#define _CRT_SECURE_NO_WARNINGS 
 #include <malloc.h>
 #include <assert.h>
-#define _CRT_SECURE_NO_WARNINGS 
 #include <string.h>
 #include "BigFigure.h"
 
 #define MIN(a,b) ((a<b)?(a):(b))
 #define MAX(a,b) ((a>b)?(a):(b))
 
-#define _IntFLtAdd(result,OperandA,OperandB) _IntPartAdd(result,OperandA,OperandB,_FltPartAdd(result,OperandA,OperandB))
+#define _IntFLtAdd(result,newFltSize,OperandA,OperandB) _IntPartAdd(result,OperandA,OperandB,_FltPartAdd(result,newFltSize,OperandA,OperandB))
 
 typedef uint32_t bit32;									//bit32为32位的内存块,用于struct中
 
-#if BF_BUFF_USE==1				//当开启异常安全保证时
+#if BF_BUFF_USE					//当开启异常安全保证时
 #define BF_BUFF_SIZE 2			//开启双缓冲,能够确保异常安全,但不节省内存
+#pragma message("异常安全(双缓冲)开启")
 #else 
 #define BF_BUFF_SIZE 1			//开启单缓冲,不能确保异常安全,但节省内存
+#pragma message("异常安全(双缓冲)关闭")
 #endif
 
 typedef char* pchar;
@@ -44,11 +46,15 @@ static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequ
 static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest);
 static inline ErrVal _toBF1(struct BFDetail * OperateBF, const char * StringHead, const char* StringTail, short HasMinus);
 static inline ErrVal _toBF2(struct BFDetail * OperateBF, const char * StringIntHead, const char * StringFltHead, const char* StringTail, short HasMinus);
-static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB, int carry);
-static int _FltPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB);
-static int _BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB);
+static inline ErrVal _BFAdd(struct BFDetail * ResultBF, int iMinus, const struct BFDetail * OperandA, const struct BFDetail *OperandB);
 
+static ErrVal _IntPartAdd(struct BFDetail * ResultBF, const struct BFDetail* OperateBFA, const struct BFDetail* OperateBFB, int carry);
+static int _FltPartAdd(struct BFDetail * ResultBF, usize
+	newFltSize, const struct BFDetail* OperateBFA, const struct BFDetail* OperateBFB);
 
+static ErrVal _AllocNewData(struct BFDetail* OperateBF);
+static int _BFCmp(const struct BFDetail * OperandA, const struct BFDetail * OperandB);
+static ErrVal _ReSizeBF(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest);
 
 
 //工厂函数(用于生产BF)
@@ -106,6 +112,56 @@ void DestroyBF(struct BFDetail* OperateBF)
 		free(OperateBF);
 	}
 	return;
+}
+
+
+//检查BF是否合法
+//返回值含义:
+//1		OperateBF为NULL
+//2		pData为NULL;
+//3		内存分配错误(当前正在使用的Data)
+//4		内存分配错误(备用的Data)
+//5		整数部分的长度大于分配的长度
+//6		小数部分的长度大于分配的长度
+//7		小数点位置错误(当前正在使用的Data)
+//8		小数点位置错误(备用的Data)
+//9		小数首位置错误(当前正在使用的Data)
+//10	小数首位置错误(备用的Data)
+//0		此BF完全合法
+int CheckBF(const struct BFDetail * OperateBF)
+{
+	size_t MemS;
+	if (!OperateBF)
+		return 1;
+
+	if (!OperateBF->pData[OperateBF->iCDI])
+		return 2;
+	MemS = (size_t)(OperateBF->iAFlt ? OperateBF->iAFlt + 2 : 1) + OperateBF->iAInt;
+#if _WIN32	//Win32独有
+	if (_msize(OperateBF->pData[OperateBF->iCDI]) != MemS)
+		return 3;
+#if BF_BUFF_USE
+	if (OperateBF->pData[!OperateBF->iCDI] && _msize(OperateBF->pData[OperateBF->iCDI]) != MemS)
+		return 4;
+#endif
+#endif
+	if (OperateBF->iAInt < OperateBF->iLInt)
+		return 5;
+	if (OperateBF->iAFlt < OperateBF->iLFlt)
+		return 6;
+
+	if (OperateBF->psRPt[OperateBF->iCDI] != OperateBF->pData[OperateBF->iCDI] + OperateBF->iAInt)
+		return 7;
+	if (OperateBF->psFlt[OperateBF->iCDI] != OperateBF->psRPt[OperateBF->iCDI] + 1)
+		return 9;
+
+#if BF_BUFF_USE
+	if (OperateBF->psRPt[!OperateBF->iCDI] != OperateBF->pData[!OperateBF->iCDI] + OperateBF->iAInt)
+		return 8;
+	if (OperateBF->psFlt[!OperateBF->iCDI] != OperateBF->psRPt[!OperateBF->iCDI] + 1)
+		return 10;
+#endif
+	return 0;
 }
 
 //输入函数
@@ -243,7 +299,7 @@ ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String)
 }
 
 //该函数将BF中的数值输出到指定的缓冲区中
-char* toString(struct BFDetail * OperateBF, char * Buffer)
+char* toString(const struct BFDetail * OperateBF, char * Buffer)
 {
 	char *Head = Buffer;
 	if (OperateBF->bMinus)
@@ -261,7 +317,7 @@ char* toString(struct BFDetail * OperateBF, char * Buffer)
 	return Head;
 }
 
-char* toString_s(struct BFDetail * OperateBF, char *Buffer, size_t BufferSize)
+char* toString_s(const struct BFDetail * OperateBF, char *Buffer, size_t BufferSize)
 {
 	char *Head = Buffer;
 	if (OperateBF->bMinus && BufferSize > 1U)
@@ -302,25 +358,25 @@ char* toString_s(struct BFDetail * OperateBF, char *Buffer, size_t BufferSize)
 	return Head;
 }
 
-//获取存放此BF的缓冲区的最小大小要求
-usize GetBitCount(struct BFDetail *OperateBF)
+//获取存放此BF的缓冲区的最小尺寸要求
+usize GetBitCount(const struct BFDetail *OperateBF)
 {
 	return OperateBF->iLInt + (OperateBF->iLFlt ? OperateBF->iLFlt + 2 : 1) + (OperateBF->bMinus ? 1 : 0);
 }
 
-ErrVal BFAdd(struct BFDetail * ResultBF, struct BFDetail * OperandA, struct BFDetail *OperandB)
+ErrVal BFAdd(struct BFDetail * ResultBF, const struct BFDetail * OperandA, const struct BFDetail *OperandB)
 {
-	int Compare = _BFCmp(OperandA, OperandB);
+	int Compare;
+	//ErrVal retVal;
 
 	if (!OperandA->bMinus && !OperandB->bMinus)
 	{
 		//正数加正数
-		ResultBF->bMinus = 0;
-		return _IntFLtAdd(ResultBF, OperandA, OperandB);
-
+		return _BFAdd(ResultBF, 0, OperandA, OperandB);
 	}
 	else if (!OperandA->bMinus && OperandB->bMinus)
 	{
+		Compare = _BFCmp(OperandA, OperandB);
 		//正数加负数
 		if (Compare)
 		{
@@ -329,18 +385,19 @@ ErrVal BFAdd(struct BFDetail * ResultBF, struct BFDetail * OperandA, struct BFDe
 	}
 	else if (OperandA->bMinus && !OperandB->bMinus)
 	{
+		Compare = _BFCmp(OperandA, OperandB);
 		//负数加正数
 	}
 	else
 	{
 		//负数加负数
-		ResultBF->bMinus = 1;
-		return _IntFLtAdd(ResultBF, OperandA, OperandB);
+		return _BFAdd(ResultBF, 1, OperandA, OperandB);
 
 	}
+	return ERR_SUCCESS;
 }
 
-int BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB)
+int BFCmp(const struct BFDetail * OperandA, const struct BFDetail * OperandB)
 {
 	if (!OperandA->bMinus && !OperandB->bMinus)
 		return _BFCmp(OperandA, OperandB);
@@ -352,8 +409,23 @@ int BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB)
 		return -_BFCmp(OperandA, OperandB);
 }
 
+//任意地调整BF的大小(可变大或变小,不会阻止数据丢失)
+ErrVal ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen)
+{
+	return (_ReSizeBF(OperateBF, newIntLen, newFltLen));
+}
+
+//可以安全得缩小OperateBF,如果新的大小如果装入原数据,则会提示错误
+ErrVal ReSizeBF_s(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen)
+{
+	if (OperateBF->iLFlt > newFltLen || OperateBF->iLInt > newIntLen)
+		return ERR_MAYLOSSACCURACY;
+	return (_ReSizeBF(OperateBF, newIntLen, newFltLen));
+}
+
+
 //比较两个BF的绝对值的大小
-static int _BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB)
+static int _BFCmp(const struct BFDetail * OperandA, const struct BFDetail * OperandB)
 {
 	char *StringA, *StringB;
 	int retVal;
@@ -363,7 +435,7 @@ static int _BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB)
 		return -2;			//A<<B
 	else
 	{
-		retVal = strcmp(OperandA->psInt, OperandB->psInt);
+		retVal = strcmp(OperandA->psInt[OperandA->iCDI], OperandB->psInt[OperandB->iCDI]);
 		if (retVal)
 			return retVal > 0 ? 1 : -1;
 		StringA = OperandA->psFlt[OperandA->iCDI];
@@ -400,18 +472,16 @@ static int _BFCmp(struct BFDetail * OperandA, struct BFDetail * OperandB)
 			}
 		}
 	}
-	//没有默认返回路径
+	return 0;
 }
-
-
 
 //整数部分的加法运算函数(忽略负号)
 //不具有安全性
-static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB, int carry)
+static ErrVal _IntPartAdd(struct BFDetail * ResultBF, const struct BFDetail* OperateBFA, const struct BFDetail* OperateBFB, int carry)
 {
-	short CopyIndexA;
-	short CopyIndexB;
-	short CopyIndexR;
+	uint8_t CopyIndexA;
+	uint8_t CopyIndexB;
+	uint8_t CopyIndexR;
 
 	CopyIndexA = OperateBFA->iCDI;
 	CopyIndexB = OperateBFB->iCDI;
@@ -473,7 +543,7 @@ static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBF
 	}
 	else
 	{
-		carry = __DoAdd(StringTailR, StringHeadA, StringTailA, StringHeadB, StringTailB, carry);
+		carry = __DoAdd(StringTailR, StringHeadA, StringTailA, StringTailB, carry);
 		StringTailR -= LenA;
 	}
 	if (carry)
@@ -485,18 +555,19 @@ static ErrVal _IntPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBF
 }
 
 //小数部分的加法运算函数(忽略负号)
-static int _FltPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, struct BFDetail* OperateBFB)
+static int _FltPartAdd(struct BFDetail * ResultBF, usize
+	newFltSize, const struct BFDetail* OperateBFA, const struct BFDetail* OperateBFB)
 {
-	short CopyIndexA;
-	short CopyIndexB;
-	short CopyIndexR;
+	uint8_t CopyIndexA;
+	uint8_t CopyIndexB;
+	uint8_t CopyIndexR;
 
 	CopyIndexA = OperateBFA->iCDI;
 	CopyIndexB = OperateBFB->iCDI;
 #if BF_BUFF_USE
 	CopyIndexR = !ResultBF->iCDI;
 #else
-	CopyIndexR = ResultBF->iCDI;
+	CopyIndexR = 0;
 #endif
 	const char
 		*StringHeadA = OperateBFA->psFlt[CopyIndexA],
@@ -504,33 +575,49 @@ static int _FltPartAdd(struct BFDetail * ResultBF, struct BFDetail* OperateBFA, 
 	char
 		*StringHeadR = ResultBF->psFlt[CopyIndexR];
 
-	usize
-		LenA = OperateBFA->iLFlt - 1,
+	usize LenA, LenB;
+	register int carry = 0;
+
+	if (OperateBFA->iLFlt)
+		LenA = OperateBFA->iLFlt - 1;
+	else
+		LenA = 0;
+
+	if (OperateBFB->iLFlt)
 		LenB = OperateBFB->iLFlt - 1;
-	int carry = 0;
-	if (LenA > LenB)
+	else
+		LenB = 0;
+
+
+	if (LenA == LenB)
 	{
-		carry = __DoAdd(StringHeadR + LenB, StringHeadA, StringHeadA + LenB, StringHeadB += LenB, 0);
-		StringHeadA += LenB;
-		ResultBF->iLFlt = (usize)(_StrCpy(StringHeadR + LenB + 1, ResultBF->iAFlt - LenB, StringHeadA, LenB - LenA) - ResultBF->psRPt[CopyIndexR]);
+		if (LenA)
+		{
+			carry = __DoAdd(StringHeadR + LenB, StringHeadA, StringHeadA + LenB, StringHeadB += LenB, 0);
+			ResultBF->iLFlt = LenB + 1;
+		}
+		StringHeadR[ResultBF->iLFlt] = 0;
 	}
-	else if (LenA < LenB)
+	else if (LenA > LenB)
 	{
-		carry = __DoAdd(StringHeadR + LenA, StringHeadA, StringHeadA + LenA, StringHeadB += LenA + 1, 0);
-		StringHeadA += LenA;
-		ResultBF->iLFlt = (usize)(_StrCpy(StringHeadR + LenA + 1, ResultBF->iAFlt - LenA, StringHeadB, LenB - LenA) - ResultBF->psRPt[CopyIndexR]);
+		if (LenB)
+		{
+			carry = __DoAdd(StringHeadR + LenB, StringHeadA, StringHeadA + LenB, StringHeadB += LenB, 0);
+			StringHeadA += LenB;
+		}
+		ResultBF->iLFlt = (usize)(_StrCpy(StringHeadR + LenB + 1, newFltSize - LenB, StringHeadA, LenB - LenA) - ResultBF->psRPt[CopyIndexR]);
 	}
 	else
 	{
-		carry = __DoAdd(StringHeadR + LenB, StringHeadA, StringHeadA + LenB, StringHeadB += LenB, 0);
-		ResultBF->iLFlt = LenB + 1;
-		StringHeadR[ResultBF->iLFlt] = 0;
+		if (LenA)
+		{
+			carry = __DoAdd(StringHeadR + LenA, StringHeadA, StringHeadA + LenA, StringHeadB += LenA + 1, 0);
+			StringHeadA += LenA;
+		}
+		ResultBF->iLFlt = (usize)(_StrCpy(StringHeadR + LenA + 1, newFltSize - LenA, StringHeadB, LenB - LenA) - ResultBF->psRPt[CopyIndexR]);
 	}
 	return carry;
 }
-
-
-
 
 //加法运算(同长部分相加)
 static inline int __DoAdd(char * StringTailR, const char * StringHeadA, const char * StringTailA, const char * StringTailB, int carry)
@@ -628,12 +715,78 @@ static inline ErrVal _toBF2(struct BFDetail * OperateBF, const char * StringIntH
 	return ERR_SUCCESS;
 }
 
+static inline ErrVal _BFAdd(struct BFDetail * ResultBF, int iMinus, const struct BFDetail * OperandA, const struct BFDetail *OperandB)
+{
+	ErrVal retVal = 0;
+	usize newIntSize, newFltSize;
+	newIntSize = MAX(OperandA->iLInt, OperandB->iLInt) + 1;
+	newFltSize = MAX(OperandA->iLFlt, OperandB->iLFlt);
+	if (newIntSize > ResultBF->iAInt)
+	{
+		//Int需要改变
+		if (newFltSize < ResultBF->iAFlt)
+			newFltSize = ResultBF->iAFlt;						//Flt不需要改变
+		retVal = _ReSizeBF(ResultBF, newIntSize, newFltSize);	//尽可能开辟大的空间
+	}
+	else
+	{
+		//Int不需要改变
+		if (newFltSize > ResultBF->iAFlt)
+		{
+			//Flt需要改变
+			newIntSize = ResultBF->iAInt;
+			retVal = _ReSizeBF(ResultBF, newIntSize, newFltSize);	//尽可能开辟大的空间
+		}
+		else {
+			//Int,Flt都不需要改变
+			newIntSize = ResultBF->iAInt;
+			newFltSize = ResultBF->iAFlt;
+#if BF_BUFF_USE
+			if (!ResultBF->pData[!ResultBF->iCDI])
+			{
+				retVal = _AllocNewData(ResultBF);
+			}
+#endif
+		}
 
-//检查整数部分的大小,如果不足,则自动进行分配
+	}
+
+	if (retVal)
+		return retVal;
+	retVal = _IntFLtAdd(ResultBF, newFltSize, OperandA, OperandB);
+	if (retVal)
+	{
+#if BF_BUFF_USE
+		if (ResultBF->iAInt > newIntSize || ResultBF->iAFlt > newFltSize)
+		{
+			free(ResultBF->pData[!ResultBF->iCDI]);
+			ResultBF->pData[!ResultBF->iCDI] = NULL;
+			return retVal;
+		}
+#endif
+	}
+	else
+	{
+		ResultBF->iAFlt = newFltSize;
+		ResultBF->iAInt = newIntSize;
+		ResultBF->bMinus = 0;
+#if BF_BUFF_USE
+		ResultBF->iCDI = !ResultBF->iCDI;
+#endif
+	}
+	return ERR_SUCCESS;
+}
+
+
+//检查整数部分的大小,如果不足,则自动进行分配(不考虑原数据)
 static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequest)
 {
 	ErrVal retVal;
-	short OperateIndex = !OperateBF->iCDI;
+#if BF_BUFF_USE
+	uint8_t OperateIndex = !OperateBF->iCDI;
+#else
+	uint8_t OperateIndex = 0;
+#endif
 	if (IntSizeRequest > OperateBF->iAInt)
 	{
 		//Data内存不足
@@ -650,7 +803,7 @@ static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequ
 		{
 			free(OperateBF->pData[OperateIndex]);
 			OperateBF->pData[OperateIndex] = (pchar)0;
-	}
+		}
 #endif
 	}
 #if BF_BUFF_USE
@@ -662,21 +815,21 @@ static inline ErrVal _CheckIntSize(struct BFDetail* OperateBF, usize IntSizeRequ
 			retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], OperateBF->iAInt, OperateBF->iAFlt);
 			if (retVal)
 				return retVal;
-}
+		}
 	}
 #endif
 	return ERR_SUCCESS;
 }
 
-//检查整数和小数部分的大小,如果不足,则自动进行分配
+//检查整数和小数部分的大小,如果不足,则自动进行分配(不考虑原数据)
 static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest)
 {
 	ErrVal retVal;
-	short OperateIndex;
 #if BF_BUFF_USE
-	OperateIndex = !OperateBF->iCDI;
+	uint8_t OperateIndex = !OperateBF->iCDI;
 #else 
-	OperateIndex = OperateBF->iCDI;
+	uint8_t OperateIndex = 0;
+	pchar StringSource = OperateBF->pData[0];
 #endif
 	if (IntSizeRequest > OperateBF->iAInt || FltSizeRequest > OperateBF->iAFlt)
 	{
@@ -686,17 +839,23 @@ static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeR
 		//Data内存不足,将重新分配一块足够大的内存
 		retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], (IntSizeRequest = MAX(IntSizeRequest, OperateBF->iAInt)), (FltSizeRequest = MAX(FltSizeRequest, OperateBF->iAFlt)));
 		if (retVal)
+		{
+#if !BF_BUFF_USE
+			OperateBF->pData[OperateIndex] = StringSource;
+#endif
 			return retVal;
+		}
 		OperateBF->iAInt = IntSizeRequest;
 		OperateBF->iAFlt = FltSizeRequest;
-		OperateBF->psFlt[OperateIndex] = OperateBF->psRPt[OperateIndex] + 1;
+		if (FltSizeRequest)
+			OperateBF->psFlt[OperateIndex] = OperateBF->psRPt[OperateIndex] + 1;
 #if BF_BUFF_USE
 		OperateIndex = OperateBF->iCDI;
 		if (OperateBF->pData[OperateIndex])
 		{
 			free(OperateBF->pData[OperateIndex]);
 			OperateBF->pData[OperateIndex] = (pchar)0;
-	}
+		}
 #endif
 	}
 #if BF_BUFF_USE
@@ -708,64 +867,79 @@ static inline ErrVal _CheckIntFltSize(struct BFDetail* OperateBF, usize IntSizeR
 			retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], OperateBF->iAInt, OperateBF->iAFlt);
 			if (retVal)
 				return retVal;
-}
+		}
+		if (OperateBF->iAFlt)
+			OperateBF->psFlt[OperateIndex] = OperateBF->psRPt[OperateIndex] + 1;
 	}
 #endif
 	return ERR_SUCCESS;
 }
 
-//为副本Data重新分配内存,此,需要传入新的大小
-//分配后新的Data和旧的Data的参数不一致,请务必在副本Data升级为主Data之时释放原主Data
-//此函数只有开启异常安全时才可以使用
-//未测试
-static ErrVal _ReSizeBF_s(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen)
-{
-	uint8_t CopyIndex = !OperateBF->iCDI;
-	ErrVal retVal;
-	if (OperateBF->pData[CopyIndex])
-		free(OperateBF->pData[CopyIndex]);			//如果已经有数据,则进行内存释放
-	retVal = __AllocData(&OperateBF->pData[CopyIndex], &OperateBF->psRPt[CopyIndex], newIntLen, newFltLen);
-	if (retVal)
-		return retVal;
-	return ERR_SUCCESS;
-}
-
-//为BF重新更改大小,只有一块内存,必须重新分配内存后进行复制
-//该函数只对一个Data进行修改
+//为BF重新分配内存
+//当开启异常安全时,新分配后的Data可能和旧的Data参数不一致,请务必在主Data升级为主Data之前释放原主Data,
+//当关闭异常安全时,此函数会完成所有拓展Data该进行的操作,此时只对一个Data进行修改
 //未仔细测试
-static ErrVal _ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen)
+static inline ErrVal _ReSizeBF(struct BFDetail* OperateBF, usize IntSizeRequest, usize FltSizeRequest)
 {
-	pchar Tmp;
-	pchar Tmp_RPt;
-	ErrVal retVal = __AllocData(&Tmp, &Tmp_RPt, newIntLen, newFltLen);
+#if BF_BUFF_USE 
+	uint8_t OperateIndex = !OperateBF->iCDI, SourceIndex = OperateBF->iCDI;
+
+#else
+	uint8_t OperateIndex = 0;
+	pchar StringDataHead, StringDataRPt;
+#endif
+	ErrVal retVal;
+	if (!IntSizeRequest)
+		return ERR_INTSIZECANBEZERO;
+
+#if !BF_BUFF_USE
+	//备份数据
+	StringDataHead = OperateBF->pData[0];
+	StringDataRPt = OperateBF->psRPt[0];
+#endif
+
+	retVal = __AllocData(&OperateBF->pData[OperateIndex], &OperateBF->psRPt[OperateIndex], IntSizeRequest, FltSizeRequest);
 	if (retVal)
-		return retVal;
-
-	//保存新的Data的已分配长度
-	OperateBF->iAFlt = newFltLen;
-	OperateBF->iAInt = newIntLen;
-
-	OperateBF->psInt[0] = _StrCpyB(Tmp, Tmp_RPt, OperateBF->psInt[0], OperateBF->psRPt[0]);
-	OperateBF->iLInt = (usize)(Tmp_RPt - OperateBF->psInt[0]);
-
-	if (newFltLen)
 	{
+#if !BF_BUFF_USE
+		OperateBF->pData[0] = StringDataHead;		//内存分配出现错误,恢复之前的样子
+#endif
+		return retVal;
+	}
+	OperateBF->iAInt = IntSizeRequest;
+	OperateBF->iAFlt = FltSizeRequest;
+	//已经分配好内存,进行内存拷贝,以下的操作不抛出异常
+
+#if BF_BUFF_USE
+	OperateBF->psInt[OperateIndex] = _StrCpyB(OperateBF->pData[OperateIndex], OperateBF->psRPt[OperateIndex], OperateBF->psInt[SourceIndex], OperateBF->psRPt[SourceIndex]);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[OperateIndex] - OperateBF->psInt[OperateIndex]);
+
+	if (FltSizeRequest)
+	{
+		OperateBF->psFlt[OperateIndex] = OperateBF->psRPt[OperateIndex] + 1;
 		if (OperateBF->iLFlt)
-		{
-			OperateBF->iLFlt = (usize)(_StrCpy(Tmp_RPt + 1, newFltLen, OperateBF->psFlt[0], OperateBF->iLFlt));
-			OperateBF->psFlt[0] = Tmp_RPt + 1;
-		}
+			OperateBF->iLFlt = (usize)(_StrCpy(OperateBF->psFlt[OperateIndex], FltSizeRequest, OperateBF->psFlt[SourceIndex], OperateBF->iLFlt) - OperateBF->psFlt[OperateIndex]);
 		else
-		{
-			//OperateBF->iLFlt不需要改变
-			OperateBF->psFlt[0] = Tmp_RPt + 1;
-			OperateBF->psFlt[0][0] = '\0';
-		}
+			OperateBF->psFlt[OperateIndex][0] = 0;
 	}
 
-	free(OperateBF->pData[0]);			//pData中的数据已经复制到新的Data中(Tmp),进行释放内存,以免内存泄露
-	OperateBF->psRPt[0] = Tmp_RPt;
-	OperateBF->pData[0] = Tmp;
+	OperateBF->iCDI = !OperateIndex;
+	free(OperateBF->pData[OperateIndex]);
+	OperateBF->pData[OperateIndex] = (pchar)0;
+#else
+	OperateBF->psInt[0] = _StrCpyB(OperateBF->pData[0], OperateBF->psRPt[0], StringDataRPt - OperateBF->iLInt, StringDataRPt);
+	OperateBF->iLInt = (usize)(OperateBF->psRPt[0] - OperateBF->psInt[0]);
+	if (OperateBF->iAFlt)
+	{
+		OperateBF->psFlt[0] = OperateBF->psRPt[0] + 1;
+		if (OperateBF->iLFlt)
+			OperateBF->iLFlt = (usize)(_StrCpy(OperateBF->psFlt[0], FltSizeRequest, StringDataRPt + 1, OperateBF->iLFlt));
+		else
+			OperateBF->psFlt[0][0] = 0;
+	}
+	if (StringDataHead)
+		free(StringDataHead);
+#endif
 	return ERR_SUCCESS;
 }
 
@@ -820,6 +994,6 @@ static inline char* _StrCpy(char * DestStart, usize DestSize, const char *Source
 
 void test(struct BFDetail* c, struct BFDetail* a, struct BFDetail* b)
 {
-	_IntPartAdd(c, a, b, _FltPartAdd(c, a, b));
+	BFAdd(c, a, b);
 	//system("pause");
 }
