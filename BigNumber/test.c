@@ -17,7 +17,7 @@ int main()
 		
 	}
 		
-	printf("%d\n",CheckBF(c));
+	printf("%d\n",CheckBF(b));
 	toString(c, str);
 	printf("'%s'\n", str);
 	printf("ÔËÐÐºÄÊ±:%dms\n", clock() - t1);

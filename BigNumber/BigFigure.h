@@ -55,13 +55,15 @@ extern "C"
 	//函数声明
 	struct BFDetail* CreateBF(usize intLen, usize FloatLen);				//工厂函数
 	void DestroyBF(struct BFDetail* OperateBF);								//回收函数
-	usize GetBitCount(const struct BFDetail *OperateBF);
-	int BFCmp(const struct BFDetail * OperandA, const struct BFDetail * OperandB);		//比较函数
-	int CheckBF(const struct BFDetail * OperateBF);
+	int CheckBF(const struct BFDetail * OperateBF);							//数据校验函数
+	usize GetBitCount(const struct BFDetail *OperateBF);					//取缓冲区大小需求函数
+	int BFCmp(const struct BFDetail * OperandA, const struct BFDetail * OperandB);		//数据比较函数
 
-	ErrVal ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen);
-	ErrVal ReSizeBF_s(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen);
 
+	ErrVal ReSizeBF(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen);		//强制分配内存
+	ErrVal ReSizeBF_s(struct BFDetail* OperateBF, usize newIntLen, usize newFltLen);	//拓展内存函数(有数据时,驳回不合理的新内存大小)
+
+	//运算函数
 	ErrVal BFAdd(struct BFDetail * ResultBF, const struct BFDetail * OperandA, const struct BFDetail *OperandB);
 
 
@@ -72,19 +74,13 @@ extern "C"
 	_CRT_INSECURE_DEPRECATE(toBF2_s) 
 		ErrVal toBF2(struct BFDetail * OperateBF, const char* String);		//接收小数字符串并转换后存进OperateBF
 	_CRT_INSECURE_DEPRECATE(toString_s) 
-		char* toString(const struct BFDetail * OperateBF, char * Buffer);			//将OperateBF中的值转换为字符串
+		char* toString(const struct BFDetail * OperateBF, char * Buffer);	//将OperateBF中的值转换为字符串
 
 	//安全版本的函数
 	ErrVal toBF1_s(struct BFDetail * OperateBF, const char * String);		//接收整数字符串并转换后存进OperateBF,非整数拒绝接受
 	ErrVal toBF2_s(struct BFDetail * OperateBF, const char * String);		//接收小数或整数字符串并转换后存进OperateBF,非小数或整数拒绝接受
 	char* toString_s(const struct BFDetail * OperateBF, char *Buffer, size_t BufferSize);
 																			//将OperateBF中的数值安全得写入到Buffer中,如果Buffer的容量太小,不足以存放所有的内容,则数据会被截断
-
-
-
-	
-
-
 
 	//****************************************************************
 #ifdef __cplusplus
